@@ -6,7 +6,7 @@ from io import BytesIO
 from streamlit_autorefresh import st_autorefresh
 import matplotlib.pyplot as plt
 
-# --- Auto-refresh every 5 mins ---
+# --- 🔁 Auto-refresh ---
 st_autorefresh(interval=300000, key="refresh")
 
 # --- API Setup ---
@@ -75,10 +75,8 @@ def detect_crossover(df):
     sma200_now = df['sma200'].iloc[-1]
     sma20_prev = df['sma20'].iloc[-2]
     sma200_prev = df['sma200'].iloc[-2]
-
     if pd.isna(sma20_now) or pd.isna(sma200_now) or pd.isna(sma20_prev) or pd.isna(sma200_prev):
         return "-"
-
     if sma20_prev < sma200_prev and sma20_now > sma200_now:
         return "🟢 Bullish Crossover"
     elif sma20_prev > sma200_prev and sma20_now < sma200_now:
@@ -101,7 +99,7 @@ def multi_tf_scan(symbols, timeframes):
                 row[tf] = "-"
                 trend_values.append("-")
 
-        # Add crossover detection on 1H
+        # 1H crossover detection
         df_1h = get_ohlcv(sym, "1h")
         row["1H Crossover"] = detect_crossover(df_1h)
 
@@ -127,31 +125,29 @@ def plot_price_chart(symbol, timeframe='1h'):
     if df is None or df.empty:
         st.warning(f"{symbol}: No data.")
         return
-    fig, ax = plt.subplots(figsize=(6, 2))
-    ax.plot(df['timestamp'], df['close'], label="Price", linewidth=1.5)
-    ax.set_title(f"{symbol} - {timeframe} Chart", fontsize=10)
-    ax.set_ylabel("Price", fontsize=8)
-    ax.set_xticks([])
-    ax.set_yticks([])
+    df = apply_sma(df)
+    fig, ax = plt.subplots(figsize=(6, 3))
+    ax.plot(df['timestamp'], df['close'], label="Price", linewidth=1.2)
+    ax.plot(df['timestamp'], df['sma20'], label="SMA 20", linestyle="--")
+    ax.plot(df['timestamp'], df['sma200'], label="SMA 200", linestyle="--")
+    ax.set_title(f"{symbol} - 1H Chart", fontsize=10)
+    ax.legend(loc="upper left")
     ax.grid(True, linestyle="--", alpha=0.3)
     st.pyplot(fig)
 
 # --- Streamlit UI ---
 st.set_page_config(page_title="Delta SMA Screener", layout="wide")
-st.title("📊 Multi-Timeframe Crypto Screener")
+st.title("📊 Multi-Timeframe Crypto Screener with Chart Preview")
 st.caption("Source: Delta Exchange India")
 
-# Only use 5m, 15m, 1h
 timeframes = ["5m", "15m", "1h"]
 filter_type = st.selectbox("🔍 Filter View", ["All", "Only Perfect Bullish", "Only Perfect Bearish", "Only Reversals"])
 
 all_symbols = get_symbols()
 all_symbol_names = [s[0] for s in all_symbols]
 st.markdown("### Select up to 6 assets to scan:")
-selected = st.multiselect("Assets", all_symbol_names, default=all_symbol_names[:10], max_selections=6)
+selected = st.multiselect("Assets", all_symbol_names, default=all_symbol_names[:6], max_selections=6)
 symbols = [s for s in all_symbols if s[0] in selected]
-
-st.write("✅ Total selected symbols:", len(symbols))
 
 if symbols:
     result_df = multi_tf_scan(symbols, timeframes)
@@ -165,7 +161,7 @@ if symbols:
             result_df = result_df[result_df["Setup Match"] == "🔁 Reversal Detected"]
 
     if result_df.empty:
-        st.warning("⚠️ No matching results found.")
+        st.warning("⚠️ No matching results.")
     else:
         st.dataframe(result_df, use_container_width=True)
         excel_data = to_excel(result_df)
@@ -176,8 +172,10 @@ if symbols:
             mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
         )
 
-        st.markdown("### 📈 Price Charts (1H Timeframe)")
-        for sym in result_df["Symbol"]:
-            plot_price_chart(sym, timeframe='1h')
+        st.markdown("### 📈 View Chart for Selected Asset")
+        symbol_list = result_df["Symbol"].tolist()
+        selected_symbol = st.selectbox("Select Asset to View Chart", symbol_list)
+        if selected_symbol:
+            plot_price_chart(selected_symbol)
 else:
     st.warning("⚠️ Please select at least 1 asset to scan.")
