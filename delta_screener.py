@@ -37,7 +37,7 @@ def fetch_ohlcv(symbol: str, interval: str, limit: int = LIMIT):
     url = f"{API_BASE}/v2/history/candles"
     params = {
         "symbol": symbol,
-        "resolution": interval.replace("m", ""),  # resolution must be 5 or 15
+        "resolution": interval,
         "start": start,
         "end": end
     }
