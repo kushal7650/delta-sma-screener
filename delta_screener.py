@@ -8,22 +8,6 @@ from streamlit_autorefresh import st_autorefresh
 # --- 🔁 Auto-refresh every 5 minutes ---
 st_autorefresh(interval=300000, key="refresh")
 
-# --- ⚙️ Telegram Config ---
-TELEGRAM_BOT_TOKEN = "YOUR_BOT_TOKEN_HERE"  # Replace with your bot token
-TELEGRAM_CHAT_ID = "YOUR_CHAT_ID_HERE"      # Replace with your chat ID
-
-def send_telegram_message(message):
-    url = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/sendMessage"
-    payload = {
-        "chat_id": TELEGRAM_CHAT_ID,
-        "text": message,
-        "parse_mode": "Markdown"
-    }
-    try:
-        requests.post(url, data=payload)
-    except Exception as e:
-        st.warning(f"Telegram error: {str(e)}")
-
 # --- API Setup ---
 DELTA_API = "https://api.india.delta.exchange"
 
@@ -143,30 +127,14 @@ st.info("Scanning all coins and refreshing every 5 minutes...")
 symbols = get_symbols()
 result_df = multi_tf_scan(symbols, timeframes)
 
-# 📩 Send alerts via Telegram
-perfect_bullish = result_df[result_df["Setup Match"] == "✅ Bullish All Frames"]
-perfect_bearish = result_df[result_df["Setup Match"] == "🔻 Bearish All Frames"]
-reversals = result_df[result_df["Setup Match"] == "🔁 Reversal Detected"]
-
-if not perfect_bullish.empty:
-    msg = "*🚀 Bullish Setup(s):*\n" + "\n".join(perfect_bullish['Symbol'].tolist())
-    send_telegram_message(msg)
-
-if not perfect_bearish.empty:
-    msg = "*🔻 Bearish Setup(s):*\n" + "\n".join(perfect_bearish['Symbol'].tolist())
-    send_telegram_message(msg)
-
-if not reversals.empty:
-    msg = "*🔁 Reversal Detected:*\n" + "\n".join(reversals['Symbol'].tolist())
-    send_telegram_message(msg)
-
 # ✅ Apply filter AFTER data is created
-if filter_type == "Only Perfect Bullish":
-    result_df = result_df[result_df["Setup Match"] == "✅ Bullish All Frames"]
-elif filter_type == "Only Perfect Bearish":
-    result_df = result_df[result_df["Setup Match"] == "🔻 Bearish All Frames"]
-elif filter_type == "Only Reversals":
-    result_df = result_df[result_df["Setup Match"] == "🔁 Reversal Detected"]
+if "Setup Match" in result_df.columns:
+    if filter_type == "Only Perfect Bullish":
+        result_df = result_df[result_df["Setup Match"] == "✅ Bullish All Frames"]
+    elif filter_type == "Only Perfect Bearish":
+        result_df = result_df[result_df["Setup Match"] == "🔻 Bearish All Frames"]
+    elif filter_type == "Only Reversals":
+        result_df = result_df[result_df["Setup Match"] == "🔁 Reversal Detected"]
 
 # 🧾 Show table
 st.dataframe(result_df, use_container_width=True)
