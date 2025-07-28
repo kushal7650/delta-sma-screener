@@ -5,10 +5,26 @@ import ta
 from io import BytesIO
 from streamlit_autorefresh import st_autorefresh
 
-# --- Auto-refresh every 5 min (300000 ms) ---
+# --- 🔁 Auto-refresh every 5 minutes ---
 st_autorefresh(interval=300000, key="refresh")
 
-# --- API Config ---
+# --- ⚙️ Telegram Config ---
+TELEGRAM_BOT_TOKEN = "YOUR_BOT_TOKEN_HERE"  # Replace with your bot token
+TELEGRAM_CHAT_ID = "YOUR_CHAT_ID_HERE"      # Replace with your chat ID
+
+def send_telegram_message(message):
+    url = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/sendMessage"
+    payload = {
+        "chat_id": TELEGRAM_CHAT_ID,
+        "text": message,
+        "parse_mode": "Markdown"
+    }
+    try:
+        requests.post(url, data=payload)
+    except Exception as e:
+        st.warning(f"Telegram error: {str(e)}")
+
+# --- API Setup ---
 DELTA_API = "https://api.india.delta.exchange"
 
 @st.cache_data(show_spinner=False)
@@ -113,20 +129,38 @@ def to_excel(df):
         df.to_excel(writer, index=False, sheet_name="Scan")
     return output.getvalue()
 
-# --- UI ---
+# --- Streamlit UI ---
 st.set_page_config(page_title="Delta SMA Screener", layout="wide")
-st.title("📊 Multi-Timeframe Crypto Screener (Delta Exchange India)")
+st.title("📊 Multi-Timeframe Crypto Screener")
+st.caption("Source: Delta Exchange India")
 
 timeframes = ["1m", "5m", "15m", "1h"]
 filter_type = st.selectbox("🔍 Filter View", ["All", "Only Perfect Bullish", "Only Perfect Bearish", "Only Reversals"])
 
-st.caption("Trend logic: price vs SMA20 vs SMA200")
-st.info("Refreshing every 5 minutes...")
+st.info("Scanning all coins and refreshing every 5 minutes...")
 
+# 🔄 Get data
 symbols = get_symbols()
 result_df = multi_tf_scan(symbols, timeframes)
 
-# Filtering
+# 📩 Send alerts via Telegram
+perfect_bullish = result_df[result_df["Setup Match"] == "✅ Bullish All Frames"]
+perfect_bearish = result_df[result_df["Setup Match"] == "🔻 Bearish All Frames"]
+reversals = result_df[result_df["Setup Match"] == "🔁 Reversal Detected"]
+
+if not perfect_bullish.empty:
+    msg = "*🚀 Bullish Setup(s):*\n" + "\n".join(perfect_bullish['Symbol'].tolist())
+    send_telegram_message(msg)
+
+if not perfect_bearish.empty:
+    msg = "*🔻 Bearish Setup(s):*\n" + "\n".join(perfect_bearish['Symbol'].tolist())
+    send_telegram_message(msg)
+
+if not reversals.empty:
+    msg = "*🔁 Reversal Detected:*\n" + "\n".join(reversals['Symbol'].tolist())
+    send_telegram_message(msg)
+
+# ✅ Apply filter AFTER data is created
 if filter_type == "Only Perfect Bullish":
     result_df = result_df[result_df["Setup Match"] == "✅ Bullish All Frames"]
 elif filter_type == "Only Perfect Bearish":
@@ -134,10 +168,10 @@ elif filter_type == "Only Perfect Bearish":
 elif filter_type == "Only Reversals":
     result_df = result_df[result_df["Setup Match"] == "🔁 Reversal Detected"]
 
-# Show results
+# 🧾 Show table
 st.dataframe(result_df, use_container_width=True)
 
-# Download full results
+# 📥 Download
 excel_data = to_excel(result_df)
 st.download_button(
     label="📥 Download Screener Results (Excel)",
