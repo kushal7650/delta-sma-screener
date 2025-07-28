@@ -9,8 +9,12 @@ DELTA_API = "https://api.india.delta.exchange"
 def get_symbols():
     url = f"{DELTA_API}/v2/products"
     res = requests.get(url).json()
-    return [(p['symbol'], p['id']) for p in res['result']
-            if p['contract_type'] == 'perpetual_futures' and p['quote_currency'] == 'USDT']
+    products = res.get('result', [])
+    symbols = []
+    for p in products:
+        if p.get('contract_type') == 'perpetual_futures' and p.get('quote_currency') == 'USDT':
+            symbols.append((p.get('symbol'), p.get('id')))
+    return symbols
 
 @st.cache_data
 def get_ohlcv(symbol, timeframe='5m', limit=210):
@@ -66,7 +70,8 @@ st.title("📈 SMA 20 vs SMA 200 Categorizer")
 st.caption("Shows assets under Bullish/Bearish by SMA structure")
 
 all_symbols = get_symbols()
-selected = st.multiselect("Select up to 10 assets", [s[0] for s in all_symbols], default=[s[0] for s in all_symbols][:10], max_selections=10)
+symbol_names = [s[0] for s in all_symbols]
+selected = st.multiselect("Select up to 10 assets", symbol_names, default=symbol_names[:10], max_selections=10)
 symbols = [s for s in all_symbols if s[0] in selected]
 
 timeframes = ["5m", "15m"]
@@ -78,4 +83,4 @@ if symbols:
         st.markdown(f"✅ **Bullish (SMA 20 > SMA 200)**\n- {', '.join(results[tf]['Bullish']) or 'None'}")
         st.markdown(f"🔻 **Bearish (SMA 20 < SMA 200)**\n- {', '.join(results[tf]['Bearish']) or 'None'}")
 else:
-    st.warning("Please select assets to scan.")
+    st.warning("⚠️ Please select assets to scan.")
