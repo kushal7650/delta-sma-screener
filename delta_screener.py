@@ -3,14 +3,24 @@ import requests
 import pandas as pd
 import ta
 
-# Correct API base for Delta Exchange India
+# Delta Exchange India API
 DELTA_API = "https://api.india.delta.exchange"
 
 @st.cache_data(show_spinner=False)
 def get_symbols():
-    url = f"{DELTA_API}/v2/products"
-    resp = requests.get(url).json()
-    return [(p['symbol'], p['id']) for p in resp['result'] if p['contract_type'] == 'perpetual_futures']
+    products_url = f"{DELTA_API}/v2/products"
+    products = requests.get(products_url).json()['result']
+
+    symbols = []
+    for p in products:
+        if p['contract_type'] == 'perpetual_futures' and p['quote_currency'] == 'USDT':
+            sym = p['symbol']
+            # Validate mark price exists
+            mark_url = f"{DELTA_API}/v2/market-data/mark-price"
+            response = requests.get(mark_url, params={"symbol": sym})
+            if response.status_code == 200 and "result" in response.json():
+                symbols.append((sym, p['id']))
+    return symbols
 
 @st.cache_data(show_spinner=False)
 def get_ohlcv(symbol, timeframe='15m', limit=200):
@@ -59,7 +69,7 @@ def screen_symbols(pairs, timeframe):
             st.error(f"Error processing {sym}: {str(e)}")
     return bullish, bearish, neutral
 
-# UI
+# --- Streamlit UI ---
 st.set_page_config(page_title="Delta SMA Screener", layout="centered")
 st.title("📊 Delta Exchange SMA Screener")
 
