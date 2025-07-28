@@ -19,11 +19,7 @@ def get_symbols():
         r.raise_for_status()
         data = r.json()
         products = data.get("result") or data.get("products") or []
-        symbols = [
-            p['symbol'] for p in products
-            if p.get('contract_type') == 'perpetual_futures'
-            and p.get('quote_currency') == 'USDT'
-        ]
+        symbols = [p['symbol'] for p in products if 'symbol' in p]
         return sorted(symbols)
     except Exception as e:
         st.error(f"Error fetching symbols: {e}")
@@ -31,22 +27,21 @@ def get_symbols():
 
 @st.cache_data(show_spinner=False)
 def fetch_ohlcv(symbol: str, interval: str, limit: int = LIMIT):
-    url = f"{API_BASE}/v2/history/candles"
+    url = f"{API_BASE}/charts/v2/market_data"
     params = {
         "symbol": symbol,
-        "resolution": interval,
+        "interval": interval,
         "limit": limit
     }
     try:
         r = requests.get(url, params=params)
         r.raise_for_status()
-        data = r.json().get("result", [])
+        data = r.json().get("result", {}).get("data", [])
         if not data:
             return None
-        df = pd.DataFrame(data)
-        df.columns = ["time", "open", "high", "low", "close", "volume"]
-        df["time"] = pd.to_datetime(df["time"], unit='s')
-        df.set_index("time", inplace=True)
+        df = pd.DataFrame(data, columns=["timestamp", "open", "high", "low", "close", "volume"])
+        df["timestamp"] = pd.to_datetime(df["timestamp"], unit='ms')
+        df.set_index("timestamp", inplace=True)
         df = df.apply(pd.to_numeric)
         return df
     except Exception as e:
@@ -68,6 +63,7 @@ def calculate_sma_structure(df):
 
 # --- UI: Asset selection ---
 all_symbols = get_symbols()
+st.write("Fetched symbols:", all_symbols)  # debug display
 selected_assets = st.multiselect("Select up to 10 assets", options=all_symbols, max_selections=10)
 
 if not selected_assets:
@@ -81,7 +77,7 @@ data_rows = []
 for symbol in selected_assets:
     row = {"Symbol": symbol}
     for tf in TIMEFRAMES:
-        df = fetch_ohlcv(symbol, tf, limit=300)
+        df = fetch_ohlcv(symbol, tf, limit=LIMIT)
         if df is None or df.empty:
             row[f"SMA Structure {tf}"] = "No Data"
         else:
