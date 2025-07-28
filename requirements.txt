@@ -2,5 +2,6 @@ streamlit
 pandas
 requests
 ta
-streamlit-autorefresh
 xlsxwriter
+matplotlib
+streamlit-autorefresh
