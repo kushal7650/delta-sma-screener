@@ -1,7 +1,6 @@
 import streamlit as st
 import pandas as pd
 import requests
-import datetime
 from ta.trend import SMAIndicator
 
 st.set_page_config(page_title="SMA Categorizer", layout="centered")
@@ -11,38 +10,48 @@ st.caption("Shows assets under Bullish/Bearish by SMA structure")
 # --- Config ---
 API_BASE = "https://api.india.delta.exchange"
 TIMEFRAMES = ["5m", "15m"]
-LIMIT = 100  # Number of candles
+LIMIT = 300  # Number of candles
 
 def get_symbols():
     url = f"{API_BASE}/v2/products"
-    r = requests.get(url)
-    r.raise_for_status()
-    data = r.json()
-    products = data.get("result") or data.get("products") or []
-    symbols = [
-        p['symbol'] for p in products
-        if p.get('contract_type') == 'perpetual_futures'
-        and p.get('quote_currency') == 'USDT'
-    ]
-    return sorted(symbols)
+    try:
+        r = requests.get(url)
+        r.raise_for_status()
+        data = r.json()
+        products = data.get("result") or data.get("products") or []
+        symbols = [
+            p['symbol'] for p in products
+            if p.get('contract_type') == 'perpetual_futures'
+            and p.get('quote_currency') == 'USDT'
+        ]
+        return sorted(symbols)
+    except Exception as e:
+        st.error(f"Error fetching symbols: {e}")
+        return []
 
 @st.cache_data(show_spinner=False)
-def fetch_ohlcv(symbol: str, interval: str, limit: int = 100):
-    url = f"{API_BASE}/charts/v2/market_data"
+def fetch_ohlcv(symbol: str, interval: str, limit: int = LIMIT):
+    url = f"{API_BASE}/v2/history/candles"
     params = {
         "symbol": symbol,
-        "interval": interval,
+        "resolution": interval,
         "limit": limit
     }
-    r = requests.get(url, params=params)
-    if r.status_code != 200:
+    try:
+        r = requests.get(url, params=params)
+        r.raise_for_status()
+        data = r.json().get("result", [])
+        if not data:
+            return None
+        df = pd.DataFrame(data)
+        df.columns = ["time", "open", "high", "low", "close", "volume"]
+        df["time"] = pd.to_datetime(df["time"], unit='s')
+        df.set_index("time", inplace=True)
+        df = df.apply(pd.to_numeric)
+        return df
+    except Exception as e:
+        st.warning(f"Data error for {symbol} [{interval}]: {e}")
         return None
-    data = r.json().get("result", {}).get("data", [])
-    df = pd.DataFrame(data, columns=["timestamp", "open", "high", "low", "close", "volume"])
-    df["timestamp"] = pd.to_datetime(df["timestamp"], unit='ms')
-    df.set_index("timestamp", inplace=True)
-    df = df.apply(pd.to_numeric)
-    return df
 
 def calculate_sma_structure(df):
     df["sma_20"] = SMAIndicator(df["close"], window=20).sma_indicator()
@@ -72,9 +81,9 @@ data_rows = []
 for symbol in selected_assets:
     row = {"Symbol": symbol}
     for tf in TIMEFRAMES:
-        df = fetch_ohlcv(symbol, tf, limit=250)
+        df = fetch_ohlcv(symbol, tf, limit=300)
         if df is None or df.empty:
-            row[f"SMA Structure {tf}"] = "Error"
+            row[f"SMA Structure {tf}"] = "No Data"
         else:
             structure = calculate_sma_structure(df)
             row[f"SMA Structure {tf}"] = structure
