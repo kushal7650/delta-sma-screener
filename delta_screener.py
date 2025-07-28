@@ -9,17 +9,23 @@ DELTA_API = "https://api.india.delta.exchange"
 @st.cache_data(show_spinner=False)
 def get_symbols():
     products_url = f"{DELTA_API}/v2/products"
-    products = requests.get(products_url).json()['result']
+    response = requests.get(products_url)
+    products = response.json().get('result', [])
 
     symbols = []
     for p in products:
-        if p['contract_type'] == 'perpetual_futures' and p['quote_currency'] == 'USDT':
-            sym = p['symbol']
-            # Validate mark price exists
+        contract_type = p.get('contract_type')
+        quote_currency = p.get('quote_currency')
+        symbol = p.get('symbol')
+        product_id = p.get('id')
+
+        if contract_type == 'perpetual_futures' and quote_currency == 'USDT' and symbol:
+            # Confirm mark price exists
             mark_url = f"{DELTA_API}/v2/market-data/mark-price"
-            response = requests.get(mark_url, params={"symbol": sym})
-            if response.status_code == 200 and "result" in response.json():
-                symbols.append((sym, p['id']))
+            mark_resp = requests.get(mark_url, params={"symbol": symbol})
+            if mark_resp.status_code == 200 and "result" in mark_resp.json():
+                symbols.append((symbol, product_id))
+
     return symbols
 
 @st.cache_data(show_spinner=False)
