@@ -63,12 +63,12 @@ bullish, bearish, neutral = screen_symbols(symbols, timeframe)
 
 st.subheader("📈 Bullish (SMA20 > SMA200)")
 for sym, price, dist in bullish:
-    st.write(f\"{sym} - Price: {price:.2f}, Dist from SMA20: {dist:.2f}%\")
+    st.write(f"{sym} - Price: {price:.2f}, Dist from SMA20: {dist:.2f}%")
 
 st.subheader("📉 Bearish (SMA20 < SMA200)")
 for sym, price, dist in bearish:
-    st.write(f\"{sym} - Price: {price:.2f}, Dist from SMA20: {dist:.2f}%\")
+    st.write(f"{sym} - Price: {price:.2f}, Dist from SMA20: {dist:.2f}%")
 
 st.subheader("⚖️ Neutral (SMA20 ≈ SMA200)")
 for sym, price, dist in neutral:
-    st.write(f\"{sym} - Price: {price:.2f}, Dist from SMA20: {dist:.2f}%\")
+    st.write(f"{sym} - Price: {price:.2f}, Dist from SMA20: {dist:.2f}%")
