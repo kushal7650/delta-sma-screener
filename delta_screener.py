@@ -1,86 +1,105 @@
 import streamlit as st
-import requests
 import pandas as pd
-import ta
+import requests
+import datetime
+from ta.trend import SMAIndicator
 
-DELTA_API = "https://api.india.delta.exchange"
-
-@st.cache_data
-def get_symbols():
-    url = f"{DELTA_API}/v2/products"
-    res = requests.get(url).json()
-    products = res.get('result', [])
-    symbols = []
-    for p in products:
-        if p.get('contract_type') == 'perpetual_futures' and p.get('quote_currency') == 'USDT':
-            symbols.append((p.get('symbol'), p.get('id')))
-    return symbols
-
-@st.cache_data
-def get_ohlcv(symbol, timeframe='5m', limit=210):
-    url = f"{DELTA_API}/v2/history/candles"
-    params = {
-        "symbol": symbol,
-        "resolution": timeframe,
-        "limit": limit
-    }
-    res = requests.get(url, params=params).json()
-    candles = res.get("result", [])
-    if not candles or len(candles) < 200:
-        return None
-    df = pd.DataFrame(candles)
-    df['timestamp'] = pd.to_datetime(df['time'], unit='s')
-    df[['open', 'high', 'low', 'close']] = df[['open', 'high', 'low', 'close']].astype(float)
-    return df
-
-def apply_sma(df):
-    df['sma20'] = ta.trend.SMAIndicator(df['close'], window=20).sma_indicator()
-    df['sma200'] = ta.trend.SMAIndicator(df['close'], window=200).sma_indicator()
-    return df
-
-def check_trend(df):
-    if df is None or len(df) < 200:
-        return "No Data"
-    df = apply_sma(df)
-    last = df.iloc[-1]
-    if pd.isna(last['sma20']) or pd.isna(last['sma200']):
-        return "No Data"
-    if last['sma20'] > last['sma200']:
-        return "Bullish"
-    elif last['sma20'] < last['sma200']:
-        return "Bearish"
-    else:
-        return "Flat"
-
-def categorize_assets(symbols, timeframes):
-    results = {tf: {"Bullish": [], "Bearish": []} for tf in timeframes}
-    for symbol, _ in symbols:
-        for tf in timeframes:
-            df = get_ohlcv(symbol, tf)
-            status = check_trend(df)
-            if status == "Bullish":
-                results[tf]["Bullish"].append(symbol)
-            elif status == "Bearish":
-                results[tf]["Bearish"].append(symbol)
-    return results
-
-# --- UI ---
-st.set_page_config(page_title="Delta SMA Categorizer", layout="wide")
+st.set_page_config(page_title="SMA Categorizer", layout="centered")
 st.title("📈 SMA 20 vs SMA 200 Categorizer")
 st.caption("Shows assets under Bullish/Bearish by SMA structure")
 
+# --- Config ---
+API_BASE = "https://api.india.delta.exchange"
+TIMEFRAMES = ["5m", "15m"]
+LIMIT = 100  # Number of candles
+
+def get_symbols():
+    url = f"{API_BASE}/v2/products"
+    r = requests.get(url)
+    r.raise_for_status()
+    data = r.json()
+    products = data.get("result") or data.get("products") or []
+    symbols = [
+        p['symbol'] for p in products
+        if p.get('contract_type') == 'perpetual_futures'
+        and p.get('quote_currency') == 'USDT'
+    ]
+    return sorted(symbols)
+
+@st.cache_data(show_spinner=False)
+def fetch_ohlcv(symbol: str, interval: str, limit: int = 100):
+    url = f"{API_BASE}/charts/v2/market_data"
+    params = {
+        "symbol": symbol,
+        "interval": interval,
+        "limit": limit
+    }
+    r = requests.get(url, params=params)
+    if r.status_code != 200:
+        return None
+    data = r.json().get("result", {}).get("data", [])
+    df = pd.DataFrame(data, columns=["timestamp", "open", "high", "low", "close", "volume"])
+    df["timestamp"] = pd.to_datetime(df["timestamp"], unit='ms')
+    df.set_index("timestamp", inplace=True)
+    df = df.apply(pd.to_numeric)
+    return df
+
+def calculate_sma_structure(df):
+    df["sma_20"] = SMAIndicator(df["close"], window=20).sma_indicator()
+    df["sma_200"] = SMAIndicator(df["close"], window=200).sma_indicator()
+    last = df.iloc[-1]
+    if pd.isna(last["sma_20"]) or pd.isna(last["sma_200"]):
+        return "Not enough data"
+    if last["sma_20"] > last["sma_200"]:
+        return "Bullish"
+    elif last["sma_20"] < last["sma_200"]:
+        return "Bearish"
+    else:
+        return "Neutral"
+
+# --- UI: Asset selection ---
 all_symbols = get_symbols()
-symbol_names = [s[0] for s in all_symbols]
-selected = st.multiselect("Select up to 10 assets", symbol_names, default=symbol_names[:10], max_selections=10)
-symbols = [s for s in all_symbols if s[0] in selected]
+selected_assets = st.multiselect("Select up to 10 assets", options=all_symbols, max_selections=10)
 
-timeframes = ["5m", "15m"]
-
-if symbols:
-    results = categorize_assets(symbols, timeframes)
-    for tf in timeframes:
-        st.subheader(f"🕒 {tf.upper()} Timeframe")
-        st.markdown(f"✅ **Bullish (SMA 20 > SMA 200)**\n- {', '.join(results[tf]['Bullish']) or 'None'}")
-        st.markdown(f"🔻 **Bearish (SMA 20 < SMA 200)**\n- {', '.join(results[tf]['Bearish']) or 'None'}")
-else:
+if not selected_assets:
     st.warning("⚠️ Please select assets to scan.")
+    st.stop()
+
+# --- Scanning ---
+st.info("🔍 Scanning selected assets across timeframes...")
+data_rows = []
+
+for symbol in selected_assets:
+    row = {"Symbol": symbol}
+    for tf in TIMEFRAMES:
+        df = fetch_ohlcv(symbol, tf, limit=250)
+        if df is None or df.empty:
+            row[f"SMA Structure {tf}"] = "Error"
+        else:
+            structure = calculate_sma_structure(df)
+            row[f"SMA Structure {tf}"] = structure
+    data_rows.append(row)
+
+result_df = pd.DataFrame(data_rows)
+st.success(f"✅ Scan complete. Total assets scanned: {len(result_df)}")
+
+# --- Display Tables ---
+for tf in TIMEFRAMES:
+    st.subheader(f"🕒 {tf.upper()} Time Frame")
+    col1, col2 = st.columns(2)
+    with col1:
+        st.markdown("### ✅ Bullish")
+        bullish_df = result_df[result_df[f"SMA Structure {tf}"] == "Bullish"]
+        st.write(bullish_df[["Symbol"]])
+    with col2:
+        st.markdown("### ❌ Bearish")
+        bearish_df = result_df[result_df[f"SMA Structure {tf}"] == "Bearish"]
+        st.write(bearish_df[["Symbol"]])
+
+# --- Download option ---
+st.download_button(
+    label="📥 Download Results (CSV)",
+    data=result_df.to_csv(index=False).encode('utf-8'),
+    file_name='sma_structure_results.csv',
+    mime='text/csv'
+)
