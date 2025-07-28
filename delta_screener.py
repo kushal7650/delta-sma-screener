@@ -3,8 +3,12 @@ import requests
 import pandas as pd
 import ta
 from io import BytesIO
+from streamlit_autorefresh import st_autorefresh
 
-# Delta Exchange India API
+# --- Auto-refresh every 5 min (300000 ms) ---
+st_autorefresh(interval=300000, key="refresh")
+
+# --- API Config ---
 DELTA_API = "https://api.india.delta.exchange"
 
 @st.cache_data(show_spinner=False)
@@ -29,7 +33,7 @@ def get_symbols():
     return symbols
 
 @st.cache_data(show_spinner=False)
-def get_ohlcv(symbol, timeframe='15m', limit=200):
+def get_ohlcv(symbol, timeframe='15m', limit=210):
     url = f"{DELTA_API}/v2/history/candles"
     params = {
         "symbol": symbol,
@@ -38,7 +42,7 @@ def get_ohlcv(symbol, timeframe='15m', limit=200):
     }
     resp = requests.get(url, params=params).json()
     candles = resp.get("result", [])
-    if not candles:
+    if not candles or len(candles) < 210:
         return None
     df = pd.DataFrame(candles)
     df['timestamp'] = pd.to_datetime(df['time'], unit='s')
@@ -51,65 +55,93 @@ def apply_sma(df):
     df['sma200'] = ta.trend.SMAIndicator(df['close'], window=200).sma_indicator()
     return df
 
-def screen_symbols(pairs, timeframe):
-    bullish, bearish, neutral = [], [], []
-    for sym, _ in pairs:
-        try:
-            df = get_ohlcv(sym, timeframe)
-            if df is None or df.empty:
-                continue
-            df = apply_sma(df)
-            latest = df.iloc[-1]
-            if pd.isna(latest['sma20']) or pd.isna(latest['sma200']):
-                continue
-            price = latest['close']
-            dist = abs(price - latest['sma20']) / price * 100
-            record = {
-                "Symbol": sym,
-                "Price": round(price, 2),
-                "SMA20": round(latest['sma20'], 2),
-                "SMA200": round(latest['sma200'], 2),
-                "Distance from SMA20 (%)": round(dist, 2)
-            }
-            if latest['sma20'] > latest['sma200']:
-                bullish.append(record)
-            elif latest['sma20'] < latest['sma200']:
-                bearish.append(record)
-            else:
-                neutral.append(record)
-        except Exception as e:
-            st.error(f"Error processing {sym}: {str(e)}")
-    return pd.DataFrame(bullish), pd.DataFrame(bearish), pd.DataFrame(neutral)
+def get_trend_status(df):
+    if df is None or len(df) < 210:
+        return "-"
+    df = apply_sma(df)
+    latest = df.iloc[-1]
+    price = latest['close']
+    sma20 = latest.get('sma20')
+    sma200 = latest.get('sma200')
+
+    if pd.isna(sma20) or pd.isna(sma200):
+        return "-"
+    
+    # Perfect trends
+    if price > sma20 and sma20 > sma200:
+        return "Bullish"
+    elif price < sma20 and sma20 < sma200:
+        return "Bearish"
+    # Reversal zones
+    elif price > sma20 and sma20 < sma200:
+        return "🔁 Bullish Reversal"
+    elif price < sma20 and sma20 > sma200:
+        return "🔁 Bearish Reversal"
+    else:
+        return "-"
+
+def multi_tf_scan(symbols, timeframes):
+    output = []
+    for sym, _ in symbols:
+        row = {"Symbol": sym}
+        trend_values = []
+        for tf in timeframes:
+            try:
+                df = get_ohlcv(sym, tf)
+                trend = get_trend_status(df)
+                row[tf] = trend
+                trend_values.append(trend)
+            except:
+                row[tf] = "-"
+                trend_values.append("-")
+
+        # Classify
+        if all(t == "Bullish" for t in trend_values):
+            row["Setup Match"] = "✅ Bullish All Frames"
+        elif all(t == "Bearish" for t in trend_values):
+            row["Setup Match"] = "🔻 Bearish All Frames"
+        elif any("Reversal" in t for t in trend_values):
+            row["Setup Match"] = "🔁 Reversal Detected"
+        else:
+            row["Setup Match"] = "-"
+        output.append(row)
+    return pd.DataFrame(output)
 
 def to_excel(df):
     output = BytesIO()
     with pd.ExcelWriter(output, engine='xlsxwriter') as writer:
-        df.to_excel(writer, index=False)
+        df.to_excel(writer, index=False, sheet_name="Scan")
     return output.getvalue()
 
-# --- Streamlit UI ---
-st.set_page_config(page_title="Delta SMA Screener", layout="centered")
-st.title("📊 Delta Exchange SMA Screener")
+# --- UI ---
+st.set_page_config(page_title="Delta SMA Screener", layout="wide")
+st.title("📊 Multi-Timeframe Crypto Screener (Delta Exchange India)")
+
+timeframes = ["1m", "5m", "15m", "1h"]
+filter_type = st.selectbox("🔍 Filter View", ["All", "Only Perfect Bullish", "Only Perfect Bearish", "Only Reversals"])
+
+st.caption("Trend logic: price vs SMA20 vs SMA200")
+st.info("Refreshing every 5 minutes...")
 
 symbols = get_symbols()
-timeframe = st.selectbox("Select Time Frame", ["15m", "1h", "4h"])
-bullish_df, bearish_df, neutral_df = screen_symbols(symbols, timeframe)
+result_df = multi_tf_scan(symbols, timeframes)
 
-# ---- Output each section ----
-def show_section(title, df, label):
-    st.subheader(title)
-    if not df.empty:
-        st.dataframe(df)
-        excel_data = to_excel(df)
-        st.download_button(
-            label=f"📥 Download {label} as Excel",
-            data=excel_data,
-            file_name=f"{label.lower()}_{timeframe}.xlsx",
-            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-        )
-    else:
-        st.info("No entries in this category.")
+# Filtering
+if filter_type == "Only Perfect Bullish":
+    result_df = result_df[result_df["Setup Match"] == "✅ Bullish All Frames"]
+elif filter_type == "Only Perfect Bearish":
+    result_df = result_df[result_df["Setup Match"] == "🔻 Bearish All Frames"]
+elif filter_type == "Only Reversals":
+    result_df = result_df[result_df["Setup Match"] == "🔁 Reversal Detected"]
 
-show_section("📈 Bullish (SMA20 > SMA200)", bullish_df, "Bullish")
-show_section("📉 Bearish (SMA20 < SMA200)", bearish_df, "Bearish")
-show_section("⚖️ Neutral (SMA20 ≈ SMA200)", neutral_df, "Neutral")
+# Show results
+st.dataframe(result_df, use_container_width=True)
+
+# Download full results
+excel_data = to_excel(result_df)
+st.download_button(
+    label="📥 Download Screener Results (Excel)",
+    data=excel_data,
+    file_name="delta_screener_results.xlsx",
+    mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+)
