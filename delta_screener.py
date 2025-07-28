@@ -55,7 +55,7 @@ def screen_symbols(pairs, timeframe):
     return bullish, bearish, neutral
 
 st.set_page_config(page_title="Delta SMA Screener", layout="centered")
-st.title(\"📊 Delta Exchange SMA Screener\")
+st.title("📊 Delta Exchange SMA Screener")
 
 symbols = get_symbols()
 timeframe = st.selectbox(\"Select Time Frame\", [\"15m\", \"1h\", \"4h\"])
