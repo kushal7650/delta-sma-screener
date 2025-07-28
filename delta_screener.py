@@ -4,6 +4,7 @@ import pandas as pd
 import ta
 from io import BytesIO
 from streamlit_autorefresh import st_autorefresh
+import matplotlib.pyplot as plt
 
 # --- 🔁 Auto-refresh every 5 minutes ---
 st_autorefresh(interval=300000, key="refresh")
@@ -25,11 +26,7 @@ def get_symbols():
         product_id = p.get('id')
 
         if contract_type == 'perpetual_futures' and quote_currency == 'USDT' and symbol:
-            # Confirm mark price exists
-            mark_url = f"{DELTA_API}/v2/market-data/mark-price"
-            mark_resp = requests.get(mark_url, params={"symbol": symbol})
-            if mark_resp.status_code == 200 and "result" in mark_resp.json():
-                symbols.append((symbol, product_id))
+            symbols.append((symbol, product_id))
     return symbols
 
 @st.cache_data(show_spinner=False)
@@ -67,12 +64,10 @@ def get_trend_status(df):
     if pd.isna(sma20) or pd.isna(sma200):
         return "-"
     
-    # Perfect trends
     if price > sma20 and sma20 > sma200:
         return "Bullish"
     elif price < sma20 and sma20 < sma200:
         return "Bearish"
-    # Reversal zones
     elif price > sma20 and sma20 < sma200:
         return "🔁 Bullish Reversal"
     elif price < sma20 and sma20 > sma200:
@@ -95,7 +90,6 @@ def multi_tf_scan(symbols, timeframes):
                 row[tf] = "-"
                 trend_values.append("-")
 
-        # Classify
         if all(t == "Bullish" for t in trend_values):
             row["Setup Match"] = "✅ Bullish All Frames"
         elif all(t == "Bearish" for t in trend_values):
@@ -113,6 +107,21 @@ def to_excel(df):
         df.to_excel(writer, index=False, sheet_name="Scan")
     return output.getvalue()
 
+def plot_price_chart(symbol, timeframe='1h'):
+    df = get_ohlcv(symbol, timeframe)
+    if df is None or df.empty:
+        st.warning(f"{symbol}: No data.")
+        return
+
+    fig, ax = plt.subplots(figsize=(6, 2))
+    ax.plot(df['timestamp'], df['close'], label="Price", linewidth=1.5)
+    ax.set_title(f"{symbol} - {timeframe} Chart", fontsize=10)
+    ax.set_ylabel("Price", fontsize=8)
+    ax.set_xticks([])
+    ax.set_yticks([])
+    ax.grid(True, linestyle="--", alpha=0.3)
+    st.pyplot(fig)
+
 # --- Streamlit UI ---
 st.set_page_config(page_title="Delta SMA Screener", layout="wide")
 st.title("📊 Multi-Timeframe Crypto Screener")
@@ -121,29 +130,44 @@ st.caption("Source: Delta Exchange India")
 timeframes = ["1m", "5m", "15m", "1h"]
 filter_type = st.selectbox("🔍 Filter View", ["All", "Only Perfect Bullish", "Only Perfect Bearish", "Only Reversals"])
 
-st.info("Scanning all coins and refreshing every 5 minutes...")
+# 🔄 Get all tradable symbols
+all_symbols = get_symbols()
+all_symbol_names = [s[0] for s in all_symbols]
 
-# 🔄 Get data
-symbols = get_symbols()
-result_df = multi_tf_scan(symbols, timeframes)
+st.markdown("### Select up to 6 assets to scan:")
+selected = st.multiselect("Assets", all_symbol_names, default=all_symbol_names[:10], max_selections=6)
 
-# ✅ Apply filter AFTER data is created
-if "Setup Match" in result_df.columns:
-    if filter_type == "Only Perfect Bullish":
-        result_df = result_df[result_df["Setup Match"] == "✅ Bullish All Frames"]
-    elif filter_type == "Only Perfect Bearish":
-        result_df = result_df[result_df["Setup Match"] == "🔻 Bearish All Frames"]
-    elif filter_type == "Only Reversals":
-        result_df = result_df[result_df["Setup Match"] == "🔁 Reversal Detected"]
+# Filter symbols based on selection
+symbols = [s for s in all_symbols if s[0] in selected]
 
-# 🧾 Show table
-st.dataframe(result_df, use_container_width=True)
+st.write("✅ Total selected symbols:", len(symbols))
 
-# 📥 Download
-excel_data = to_excel(result_df)
-st.download_button(
-    label="📥 Download Screener Results (Excel)",
-    data=excel_data,
-    file_name="delta_screener_results.xlsx",
-    mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-)
+# Run scanner
+if symbols:
+    result_df = multi_tf_scan(symbols, timeframes)
+
+    if "Setup Match" in result_df.columns:
+        if filter_type == "Only Perfect Bullish":
+            result_df = result_df[result_df["Setup Match"] == "✅ Bullish All Frames"]
+        elif filter_type == "Only Perfect Bearish":
+            result_df = result_df[result_df["Setup Match"] == "🔻 Bearish All Frames"]
+        elif filter_type == "Only Reversals":
+            result_df = result_df[result_df["Setup Match"] == "🔁 Reversal Detected"]
+
+    if result_df.empty:
+        st.warning("⚠️ No matching results found for selected symbols and filter.")
+    else:
+        st.dataframe(result_df, use_container_width=True)
+        excel_data = to_excel(result_df)
+        st.download_button(
+            label="📥 Download Screener Results (Excel)",
+            data=excel_data,
+            file_name="delta_screener_results.xlsx",
+            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+        )
+
+        st.markdown("### 📈 Price Charts (1H Timeframe)")
+        for sym in result_df["Symbol"]:
+            plot_price_chart(sym, timeframe='1h')
+else:
+    st.warning("⚠️ Please select at least 1 asset to scan.")
