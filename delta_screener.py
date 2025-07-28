@@ -3,27 +3,29 @@ import requests
 import pandas as pd
 import ta
 
-DELTA_API = "https://api.delta.exchange"
+# Correct API base for Delta Exchange India
+DELTA_API = "https://api.india.delta.exchange"
 
 @st.cache_data(show_spinner=False)
 def get_symbols():
     url = f"{DELTA_API}/v2/products"
     resp = requests.get(url).json()
-    return [(p['symbol'], p['id']) for p in resp['result'] if p['contract_type'] == 'perpetual']
+    return [(p['symbol'], p['id']) for p in resp['result'] if p['contract_type'] == 'perpetual_futures']
 
 @st.cache_data(show_spinner=False)
-def get_ohlcv(product_id, timeframe='15m', limit=200):
-    url = f"{DELTA_API}/v2/candles"
+def get_ohlcv(symbol, timeframe='15m', limit=200):
+    url = f"{DELTA_API}/v2/history/candles"
     params = {
-        "product_id": product_id,
-        "interval": timeframe,
+        "symbol": symbol,
+        "resolution": timeframe,
         "limit": limit
     }
     resp = requests.get(url, params=params).json()
-    candles = resp['result']
+    candles = resp.get("result", [])
+    if not candles:
+        return None
     df = pd.DataFrame(candles)
     df['timestamp'] = pd.to_datetime(df['time'], unit='s')
-    df = df.sort_values('timestamp')
     df = df[['timestamp', 'open', 'high', 'low', 'close', 'volume']]
     df[['open', 'high', 'low', 'close', 'volume']] = df[['open', 'high', 'low', 'close', 'volume']].astype(float)
     return df
@@ -35,9 +37,12 @@ def apply_sma(df):
 
 def screen_symbols(pairs, timeframe):
     bullish, bearish, neutral = [], [], []
-    for sym, pid in pairs:
+    for sym, _ in pairs:
         try:
-            df = get_ohlcv(pid, timeframe)
+            df = get_ohlcv(sym, timeframe)
+            if df is None or df.empty:
+                st.warning(f"No data for {sym}")
+                continue
             df = apply_sma(df)
             latest = df.iloc[-1]
             if pd.isna(latest['sma20']) or pd.isna(latest['sma200']):
@@ -51,9 +56,10 @@ def screen_symbols(pairs, timeframe):
             else:
                 neutral.append((sym, price, dist))
         except Exception as e:
-            print(f"Error processing {sym}: {e}")
+            st.error(f"Error processing {sym}: {str(e)}")
     return bullish, bearish, neutral
 
+# UI
 st.set_page_config(page_title="Delta SMA Screener", layout="centered")
 st.title("📊 Delta Exchange SMA Screener")
 
