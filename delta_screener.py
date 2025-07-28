@@ -6,7 +6,7 @@ from io import BytesIO
 from streamlit_autorefresh import st_autorefresh
 import matplotlib.pyplot as plt
 
-# --- 🔁 Auto-refresh every 5 minutes ---
+# --- Auto-refresh every 5 mins ---
 st_autorefresh(interval=300000, key="refresh")
 
 # --- API Setup ---
@@ -17,16 +17,10 @@ def get_symbols():
     products_url = f"{DELTA_API}/v2/products"
     response = requests.get(products_url)
     products = response.json().get('result', [])
-
     symbols = []
     for p in products:
-        contract_type = p.get('contract_type')
-        quote_currency = p.get('quote_currency')
-        symbol = p.get('symbol')
-        product_id = p.get('id')
-
-        if contract_type == 'perpetual_futures' and quote_currency == 'USDT' and symbol:
-            symbols.append((symbol, product_id))
+        if p.get('contract_type') == 'perpetual_futures' and p.get('quote_currency') == 'USDT':
+            symbols.append((p.get('symbol'), p.get('id')))
     return symbols
 
 @st.cache_data(show_spinner=False)
@@ -60,10 +54,8 @@ def get_trend_status(df):
     price = latest['close']
     sma20 = latest.get('sma20')
     sma200 = latest.get('sma200')
-
     if pd.isna(sma20) or pd.isna(sma200):
         return "-"
-    
     if price > sma20 and sma20 > sma200:
         return "Bullish"
     elif price < sma20 and sma20 < sma200:
@@ -72,6 +64,25 @@ def get_trend_status(df):
         return "🔁 Bullish Reversal"
     elif price < sma20 and sma20 > sma200:
         return "🔁 Bearish Reversal"
+    else:
+        return "-"
+
+def detect_crossover(df):
+    if df is None or len(df) < 210:
+        return "-"
+    df = apply_sma(df)
+    sma20_now = df['sma20'].iloc[-1]
+    sma200_now = df['sma200'].iloc[-1]
+    sma20_prev = df['sma20'].iloc[-2]
+    sma200_prev = df['sma200'].iloc[-2]
+
+    if pd.isna(sma20_now) or pd.isna(sma200_now) or pd.isna(sma20_prev) or pd.isna(sma200_prev):
+        return "-"
+
+    if sma20_prev < sma200_prev and sma20_now > sma200_now:
+        return "🟢 Bullish Crossover"
+    elif sma20_prev > sma200_prev and sma20_now < sma200_now:
+        return "🔴 Bearish Crossover"
     else:
         return "-"
 
@@ -89,6 +100,10 @@ def multi_tf_scan(symbols, timeframes):
             except:
                 row[tf] = "-"
                 trend_values.append("-")
+
+        # Add crossover detection on 1H
+        df_1h = get_ohlcv(sym, "1h")
+        row["1H Crossover"] = detect_crossover(df_1h)
 
         if all(t == "Bullish" for t in trend_values):
             row["Setup Match"] = "✅ Bullish All Frames"
@@ -112,7 +127,6 @@ def plot_price_chart(symbol, timeframe='1h'):
     if df is None or df.empty:
         st.warning(f"{symbol}: No data.")
         return
-
     fig, ax = plt.subplots(figsize=(6, 2))
     ax.plot(df['timestamp'], df['close'], label="Price", linewidth=1.5)
     ax.set_title(f"{symbol} - {timeframe} Chart", fontsize=10)
@@ -127,22 +141,18 @@ st.set_page_config(page_title="Delta SMA Screener", layout="wide")
 st.title("📊 Multi-Timeframe Crypto Screener")
 st.caption("Source: Delta Exchange India")
 
-timeframes = ["1m", "5m", "15m", "1h"]
+# Only use 5m, 15m, 1h
+timeframes = ["5m", "15m", "1h"]
 filter_type = st.selectbox("🔍 Filter View", ["All", "Only Perfect Bullish", "Only Perfect Bearish", "Only Reversals"])
 
-# 🔄 Get all tradable symbols
 all_symbols = get_symbols()
 all_symbol_names = [s[0] for s in all_symbols]
-
 st.markdown("### Select up to 6 assets to scan:")
 selected = st.multiselect("Assets", all_symbol_names, default=all_symbol_names[:10], max_selections=6)
-
-# Filter symbols based on selection
 symbols = [s for s in all_symbols if s[0] in selected]
 
 st.write("✅ Total selected symbols:", len(symbols))
 
-# Run scanner
 if symbols:
     result_df = multi_tf_scan(symbols, timeframes)
 
@@ -155,7 +165,7 @@ if symbols:
             result_df = result_df[result_df["Setup Match"] == "🔁 Reversal Detected"]
 
     if result_df.empty:
-        st.warning("⚠️ No matching results found for selected symbols and filter.")
+        st.warning("⚠️ No matching results found.")
     else:
         st.dataframe(result_df, use_container_width=True)
         excel_data = to_excel(result_df)
