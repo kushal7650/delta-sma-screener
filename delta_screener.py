@@ -54,7 +54,7 @@ def screen_symbols(pairs, timeframe):
             print(f"Error processing {sym}: {e}")
     return bullish, bearish, neutral
 
-st.set_page_config(page_title=\"Delta SMA Screener\", layout=\"centered\")
+st.set_page_config(page_title="Delta SMA Screener", layout="centered")
 st.title(\"📊 Delta Exchange SMA Screener\")
 
 symbols = get_symbols()
