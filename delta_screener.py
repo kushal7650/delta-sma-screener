@@ -21,30 +21,29 @@ def get_symbols():
         r.raise_for_status()
         response = r.json()
 
-        # If it's a dict with a key "result", extract it
+        # Handle case where result is wrapped under "result" key
         data = response.get("result", response)
 
-        # Ensure data is a list
+        # Extract product list safely
         if not isinstance(data, list):
-            st.error("Unexpected API response format.")
-            return []
+            data = [data] if isinstance(data, dict) else []
 
         st.expander("🔍 Raw products sample:").write(data[:3])
 
         symbols = []
         for p in data:
+            if not isinstance(p, dict):
+                continue
             symbol = p.get("symbol")
             state = p.get("state")
             status = p.get("trading_status")
             notional_type = p.get("notional_type")
-            quoting_asset = p.get("quoting_asset") or {}
+            quoting_asset = p.get("quoting_asset", {}) or {}
             quoting_asset_symbol = quoting_asset.get("symbol", "").upper()
 
             if (
-                notional_type == "vanilla"
-                and state == "live"
-                and status == "operational"
-                and quoting_asset_symbol in ["USDT", "USD"]
+                symbol and state == "live" and status == "operational" and
+                notional_type == "vanilla" and quoting_asset_symbol == "USDT"
             ):
                 symbols.append(symbol)
 
