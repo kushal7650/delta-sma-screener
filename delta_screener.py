@@ -2,7 +2,6 @@ import streamlit as st
 import pandas as pd
 import requests
 import time
-import matplotlib.pyplot as plt
 from ta.trend import SMAIndicator
 
 st.set_page_config(page_title="SMA Categorizer", layout="centered")
@@ -11,7 +10,7 @@ st.caption("Shows assets under Bullish/Bearish by SMA structure")
 
 # --- Config ---
 API_BASE = "https://api.india.delta.exchange"
-TIMEFRAMES = {"5m": 5, "15m": 15}
+TIMEFRAMES = ["5m", "15m"]
 LIMIT = 200  # Number of candles
 
 # --- Get available trading symbols ---
@@ -30,14 +29,15 @@ def get_symbols():
 
 # --- Fetch OHLCV data ---
 @st.cache_data(show_spinner=False)
-def fetch_ohlcv(symbol: str, resolution: int, limit: int = LIMIT):
+def fetch_ohlcv(symbol: str, interval: str, limit: int = LIMIT):
     end = int(time.time())
-    start = end - limit * 60 * resolution
+    multiplier = {"5m": 60 * 5, "15m": 60 * 15}.get(interval, 60 * 5)
+    start = end - limit * multiplier
 
     url = f"{API_BASE}/v2/history/candles"
     params = {
         "symbol": symbol,
-        "resolution": resolution,
+        "resolution": interval,  # Ensure interval is like "5m", "15m"
         "start": start,
         "end": end
     }
@@ -45,7 +45,7 @@ def fetch_ohlcv(symbol: str, resolution: int, limit: int = LIMIT):
         r = requests.get(url, params=params)
         r.raise_for_status()
         candles = r.json().get("result", [])
-        if not candles or len(candles) < 200:
+        if not candles:
             return None
         df = pd.DataFrame(candles)
         df["timestamp"] = pd.to_datetime(df["time"], unit='s') + pd.Timedelta(hours=5, minutes=30)
@@ -53,29 +53,20 @@ def fetch_ohlcv(symbol: str, resolution: int, limit: int = LIMIT):
         df = df.rename(columns={"o": "open", "h": "high", "l": "low", "c": "close", "v": "volume"})
         return df
     except Exception as e:
-        st.warning(f"❌ Data error for {symbol} @ {resolution}m: {e}")
+        st.warning(f"❌ Data error for {symbol} @ {interval}: {e}")
         return None
 
 # --- Calculate SMA structure ---
-def calculate_sma_structure(df, timeframe_label):
+def calculate_sma_structure(df):
     df["sma_20"] = SMAIndicator(df["close"], window=20).sma_indicator()
     df["sma_200"] = SMAIndicator(df["close"], window=200).sma_indicator()
     last = df.iloc[-1]
-    price = last["close"]
-    sma20 = last["sma_20"]
-    sma200 = last["sma_200"]
-
-    if pd.isna(sma20) or pd.isna(sma200):
+    if pd.isna(last["sma_20"]) or pd.isna(last["sma_200"]):
         return "Not enough data"
-
-    if price > sma20 and sma20 > sma200:
+    if last["sma_20"] > last["sma_200"]:
         return "Bullish"
-    elif price < sma20 and sma20 < sma200:
+    elif last["sma_20"] < last["sma_200"]:
         return "Bearish"
-    elif timeframe_label == "5m" and price > sma20 and sma20 < sma200:
-        return "Slight Bullish"
-    elif timeframe_label == "5m" and price < sma20 and sma20 > sma200:
-        return "Slight Bearish"
     else:
         return "Neutral"
 
@@ -91,69 +82,35 @@ if not selected_assets:
 # --- Scanning ---
 st.info("🔍 Scanning selected assets across timeframes...")
 data_rows = []
-dataframes = {}  # Store for charting
 
 for symbol in selected_assets:
     row = {"Symbol": symbol}
-    for label, resolution in TIMEFRAMES.items():
-        df = fetch_ohlcv(symbol, resolution, limit=LIMIT)
+    for tf in TIMEFRAMES:
+        df = fetch_ohlcv(symbol, tf, limit=LIMIT)
         if df is None or df.empty:
-            row[f"SMA Structure {label}"] = "No Data"
+            row[f"SMA Structure {tf}"] = "No Data"
         else:
-            df["sma_20"] = SMAIndicator(df["close"], window=20).sma_indicator()
-            df["sma_200"] = SMAIndicator(df["close"], window=200).sma_indicator()
-            dataframes[(symbol, label)] = df  # Store for later
-            structure = calculate_sma_structure(df, label)
-            row[f"SMA Structure {label}"] = structure
+            structure = calculate_sma_structure(df)
+            row[f"SMA Structure {tf}"] = structure
     data_rows.append(row)
 
 result_df = pd.DataFrame(data_rows)
 st.success(f"✅ Scan complete. Total assets scanned: {len(result_df)}")
 
 # --- Display Tables ---
-for tf_label in TIMEFRAMES:
-    st.subheader(f"🕒 {tf_label.upper()} Time Frame")
-    col1, col2, col3, col4 = st.columns(4)
+for tf in TIMEFRAMES:
+    st.subheader(f"🕒 {tf.upper()} Time Frame")
+    col1, col2 = st.columns(2)
     with col1:
         st.markdown("### ✅ Bullish")
-        bullish_df = result_df[result_df[f"SMA Structure {tf_label}"] == "Bullish"]
+        bullish_df = result_df[result_df[f"SMA Structure {tf}"] == "Bullish"]
         st.write(bullish_df[["Symbol"]])
     with col2:
-        st.markdown("### ⚠️ Slight Bullish")
-        slight_df = result_df[result_df[f"SMA Structure {tf_label}"] == "Slight Bullish"]
-        st.write(slight_df[["Symbol"]])
-    with col3:
         st.markdown("### ❌ Bearish")
-        bearish_df = result_df[result_df[f"SMA Structure {tf_label}"] == "Bearish"]
+        bearish_df = result_df[result_df[f"SMA Structure {tf}"] == "Bearish"]
         st.write(bearish_df[["Symbol"]])
-    with col4:
-        st.markdown("### 🔻 Slight Bearish")
-        slight_bear_df = result_df[result_df[f"SMA Structure {tf_label}"] == "Slight Bearish"]
-        st.write(slight_bear_df[["Symbol"]])
 
 # --- Download option ---
 st.download_button(
     label="📅 Download Results (CSV)",
-    data=result_df.to_csv(index=False).encode('utf-8'),
-    file_name='sma_structure_results.csv',
-    mime='text/csv'
-)
-
-# --- Chart Preview ---
-st.markdown("---")
-st.header("📊 Chart Previews")
-sel_symbol = st.selectbox("Select asset to view chart", selected_assets)
-sel_tf = st.radio("Choose timeframe", list(TIMEFRAMES.keys()), horizontal=True)
-
-if (sel_symbol, sel_tf) in dataframes:
-    df = dataframes[(sel_symbol, sel_tf)]
-    fig, ax = plt.subplots(figsize=(10, 4))
-    ax.plot(df.index, df["close"], label="Close", linewidth=1)
-    ax.plot(df.index, df["sma_20"], label="SMA 20", linestyle="--")
-    ax.plot(df.index, df["sma_200"], label="SMA 200", linestyle=":")
-    ax.set_title(f"{sel_symbol} - {sel_tf} Chart")
-    ax.legend()
-    ax.grid(True)
-    st.pyplot(fig)
-else:
-    st.info("Chart not available for selected asset/timeframe.")
+    data=result_df.to_csv(index=False)
