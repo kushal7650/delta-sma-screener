@@ -21,23 +21,29 @@ def get_symbols():
         r.raise_for_status()
         data = r.json()
 
-        # 🔧 Fix: support both raw list and old-style response
-        products = data if isinstance(data, list) else data.get("result", [])
-        st.write("🔍 Raw products sample:", products[:3])  # DEBUG: Display 3 sample entries
+        # 🔍 Show debug output (optional)
+        st.expander("🔍 Raw products sample:").write(data[:3])
 
-        all_types = set(p.get("contract_type", "Unknown") for p in products)
-        st.write("🧩 Unique contract types found:", all_types)
+        # Filter only live perpetual futures with quoting asset USDT
+        symbols = []
+        for p in data:
+            contract_type = p.get("contract_type")
+            symbol = p.get("symbol")
+            state = p.get("state")
+            status = p.get("trading_status")
 
-        symbols = [
-            p["symbol"] for p in products
-            if p.get("state") == "live"
-            and p.get("trading_status") == "operational"
-            and p.get("contract_type") == "perpetual_futures"
-            and (
+            # Check for perpetual futures
+            is_perpetual = contract_type == "perpetual_futures"
+            quotes_in_usdt = (
                 p.get("quote_currency") == "USDT" or
                 p.get("quoting_asset", {}).get("symbol", "").upper() == "USDT"
             )
-        ]
+
+            if is_perpetual and state == "live" and status == "operational" and quotes_in_usdt:
+                symbols.append(symbol)
+
+        if not symbols:
+            st.warning("⚠️ No perpetual futures found with USDT quoting.")
 
         st.write("✅ Symbols fetched:", symbols)
         return sorted(symbols)
@@ -89,7 +95,7 @@ def calculate_sma_structure(df):
         return "Not enough data"
     if last["close"] > last["sma_20"] and last["sma_20"] < last["sma_200"]:
         return "Slight Bullish"
-    if last["close"] < last["sma_20"] and last["sma_20"] < last["sma_200"]:
+    if last["close"] < last["sma_20"] and last["sma_20"] > last["sma_200"]:
         return "Slight Bearish"
     if last["sma_20"] > last["sma_200"]:
         return "Bullish"
