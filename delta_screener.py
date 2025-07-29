@@ -24,18 +24,21 @@ def get_symbols():
         # If it's a dict with a key "result", extract it
         data = response.get("result", response)
 
-        # Show a sample of what we're working with
-        st.expander("🔍 Raw products sample:").write(data[:3] if isinstance(data, list) else data)
+        # Ensure data is a list
+        if not isinstance(data, list):
+            st.error("Unexpected API response format.")
+            return []
+
+        st.expander("🔍 Raw products sample:").write(data[:3])
 
         symbols = []
-        for p in data if isinstance(data, list) else []:
+        for p in data:
             symbol = p.get("symbol")
             state = p.get("state")
             status = p.get("trading_status")
             notional_type = p.get("notional_type")
-            quoting_asset_symbol = (
-                p.get("quoting_asset", {}).get("symbol", "").upper()
-            )
+            quoting_asset = p.get("quoting_asset")
+            quoting_asset_symbol = quoting_asset.get("symbol", "").upper() if quoting_asset else ""
 
             if (
                 notional_type == "vanilla"
