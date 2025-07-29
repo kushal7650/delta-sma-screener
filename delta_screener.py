@@ -11,7 +11,7 @@ st.caption("Shows assets under Bullish/Bearish/Slight structure by SMA structure
 # --- Config ---
 API_BASE = "https://api.india.delta.exchange"
 TIMEFRAMES = ["5m", "15m"]
-LIMIT = 200  # Number of candles
+LIMIT = 200
 
 # --- Get available trading symbols ---
 def get_symbols():
@@ -21,37 +21,30 @@ def get_symbols():
         r.raise_for_status()
         data = r.json()
 
-        if isinstance(data, dict) and "result" in data:
-            data = data["result"]
-        elif isinstance(data, dict):
-            data = list(data.values())
-        elif not isinstance(data, list):
-            raise ValueError("Unexpected response structure.")
-
-        st.expander("🔍 Raw products sample:").write(data[:3] if isinstance(data, list) else data)
+        st.expander("🔍 Raw products sample:").write(data[:3])
 
         symbols = []
         for p in data:
-            contract_type = p.get("contract_type")
             symbol = p.get("symbol")
             state = p.get("state")
             status = p.get("trading_status")
-
-            is_perpetual = contract_type == "perpetual_futures"
-            quotes_in_usdt = (
-                p.get("quote_currency") == "USDT" or
-                p.get("quoting_asset", {}).get("symbol", "").upper() == "USDT"
+            notional_type = p.get("notional_type")
+            quoting_asset_symbol = (
+                p.get("quoting_asset", {}).get("symbol", "").upper()
             )
 
-            if is_perpetual and state == "live" and status == "operational" and quotes_in_usdt:
+            if (
+                notional_type == "vanilla"
+                and state == "live"
+                and status == "operational"
+                and quoting_asset_symbol == "USDT"
+            ):
                 symbols.append(symbol)
 
         if not symbols:
-            st.warning("⚠️ No perpetual futures found with USDT quoting.")
+            st.warning("⚠️ No matching assets found.")
 
-        st.write("✅ Symbols fetched:", symbols)
         return sorted(symbols)
-
     except Exception as e:
         st.error(f"Error fetching symbols: {e}")
         return []
