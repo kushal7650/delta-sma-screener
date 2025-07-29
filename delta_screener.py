@@ -6,7 +6,7 @@ from ta.trend import SMAIndicator
 
 st.set_page_config(page_title="SMA Categorizer", layout="centered")
 st.title("📈 SMA 20 vs SMA 200 Categorizer")
-st.caption("Shows assets under Bullish/Bearish by SMA structure")
+st.caption("Shows assets under Bullish/Bearish/Slight structure by SMA structure")
 
 # --- Config ---
 API_BASE = "https://api.india.delta.exchange"
@@ -20,20 +20,23 @@ def get_symbols():
         r = requests.get(url)
         r.raise_for_status()
         data = r.json()
-        products = data.get("result", [])
+
+        # 🔧 Fix: support both raw list and old-style response
+        products = data if isinstance(data, list) else data.get("result", [])
         st.write("🔍 Raw products sample:", products[:3])  # DEBUG: Display 3 sample entries
 
-        # 🔍 Log contract types
         all_types = set(p.get("contract_type", "Unknown") for p in products)
         st.write("🧩 Unique contract types found:", all_types)
 
-        # Updated filter: only USDT perpetuals
         symbols = [
             p["symbol"] for p in products
             if p.get("state") == "live"
             and p.get("trading_status") == "operational"
             and p.get("contract_type") == "perpetual_futures"
-            and p.get("quoting_asset", {}).get("symbol", "").upper() == "USDT"
+            and (
+                p.get("quote_currency") == "USDT" or
+                p.get("quoting_asset", {}).get("symbol", "").upper() == "USDT"
+            )
         ]
 
         st.write("✅ Symbols fetched:", symbols)
@@ -84,6 +87,10 @@ def calculate_sma_structure(df):
     last = df.iloc[-1]
     if pd.isna(last["sma_20"]) or pd.isna(last["sma_200"]):
         return "Not enough data"
+    if last["close"] > last["sma_20"] and last["sma_20"] < last["sma_200"]:
+        return "Slight Bullish"
+    if last["close"] < last["sma_20"] and last["sma_20"] < last["sma_200"]:
+        return "Slight Bearish"
     if last["sma_20"] > last["sma_200"]:
         return "Bullish"
     elif last["sma_20"] < last["sma_200"]:
@@ -126,15 +133,17 @@ st.success(f"✅ Scan complete. Total assets scanned: {len(result_df)}")
 # --- Display Tables ---
 for tf in TIMEFRAMES:
     st.subheader(f"🕒 {tf.upper()} Time Frame")
-    col1, col2 = st.columns(2)
+    col1, col2, col3 = st.columns(3)
     with col1:
         st.markdown("### ✅ Bullish")
-        bullish_df = result_df[result_df[f"SMA Structure {tf}"] == "Bullish"]
-        st.write(bullish_df[["Symbol"]])
+        st.write(result_df[result_df[f"SMA Structure {tf}"] == "Bullish"]["Symbol"])
     with col2:
+        st.markdown("### ⚠️ Slight")
+        slight_df = result_df[result_df[f"SMA Structure {tf}"].str.contains("Slight")]
+        st.write(slight_df[["Symbol", f"SMA Structure {tf}"]])
+    with col3:
         st.markdown("### ❌ Bearish")
-        bearish_df = result_df[result_df[f"SMA Structure {tf}"] == "Bearish"]
-        st.write(bearish_df[["Symbol"]])
+        st.write(result_df[result_df[f"SMA Structure {tf}"] == "Bearish"]["Symbol"])
 
 # --- Download option ---
 st.download_button(
