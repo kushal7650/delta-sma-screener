@@ -37,7 +37,7 @@ def fetch_ohlcv(symbol: str, interval: str, limit: int = LIMIT):
     url = f"{API_BASE}/v2/history/candles"
     params = {
         "symbol": symbol,
-        "resolution": interval,  # Ensure interval is like "5m", "15m"
+        "resolution": interval.replace("m", ""),  # resolution must be just the number
         "start": start,
         "end": end
     }
@@ -112,5 +112,8 @@ for tf in TIMEFRAMES:
 
 # --- Download option ---
 st.download_button(
-    label="📅 Download Results (CSV)",
-    data=result_df.to_csv(index=False)
+    label="🗕️ Download Results (CSV)",
+    data=result_df.to_csv(index=False).encode('utf-8'),
+    file_name='sma_structure_results.csv',
+    mime='text/csv'
+)
