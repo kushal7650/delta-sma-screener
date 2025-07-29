@@ -37,14 +37,14 @@ def get_symbols():
             state = p.get("state")
             status = p.get("trading_status")
             notional_type = p.get("notional_type")
-            quoting_asset = p.get("quoting_asset")
-            quoting_asset_symbol = quoting_asset.get("symbol", "").upper() if quoting_asset else ""
+            quoting_asset = p.get("quoting_asset") or {}
+            quoting_asset_symbol = quoting_asset.get("symbol", "").upper()
 
             if (
                 notional_type == "vanilla"
                 and state == "live"
                 and status == "operational"
-                and quoting_asset_symbol == "USDT"
+                and quoting_asset_symbol in ["USDT", "USD"]
             ):
                 symbols.append(symbol)
 
