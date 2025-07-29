@@ -27,12 +27,13 @@ def get_symbols():
         all_types = set(p.get("contract_type", "Unknown") for p in products)
         st.write("🧩 Unique contract types found:", all_types)
 
-        # Updated filter to show all symbols ending with USDT
+        # Updated filter: only USDT perpetuals
         symbols = [
             p["symbol"] for p in products
             if p.get("state") == "live"
             and p.get("trading_status") == "operational"
-            and p.get("quote_currency", p.get("quoting_asset", {}).get("symbol", "")).upper() == "USDT"
+            and p.get("contract_type") == "perpetual_futures"
+            and p.get("quoting_asset", {}).get("symbol", "").upper() == "USDT"
         ]
 
         st.write("✅ Symbols fetched:", symbols)
