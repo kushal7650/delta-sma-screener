@@ -20,8 +20,16 @@ def get_symbols():
         r = requests.get(url)
         r.raise_for_status()
         data = r.json()
-        products = data.get("result") or data.get("products") or []
-        symbols = [p['symbol'] for p in products if 'symbol' in p and 'USDT' in p['symbol']]
+        products = data.get("result", [])
+        st.write("🔍 Raw products sample:", products[:5])  # DEBUG: Display 5 sample entries
+
+        # Filter symbols
+        symbols = [
+            p["symbol"] for p in products
+            if p.get("contract_type") == "perpetual_futures" and p.get("quote_currency") == "USDT"
+        ]
+
+        st.write("✅ Symbols fetched:", symbols)  # DEBUG: Display filtered symbols
         return sorted(symbols)
     except Exception as e:
         st.error(f"Error fetching symbols: {e}")
@@ -79,6 +87,11 @@ def calculate_sma_structure(df):
 # --- UI: Asset selection ---
 st.markdown("---")
 all_symbols = get_symbols()
+
+if not all_symbols:
+    st.error("❌ No symbols fetched. Please check API or try again later.")
+    st.stop()
+
 selected_assets = st.multiselect("Select up to 10 assets", options=all_symbols, max_selections=10)
 
 if not selected_assets:
