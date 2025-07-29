@@ -11,7 +11,7 @@ st.caption("Shows assets under Bullish/Bearish/Slight structure by SMA structure
 # --- Config ---
 API_BASE = "https://api.india.delta.exchange"
 TIMEFRAMES = ["5m", "15m"]
-LIMIT = 200
+LIMIT = 200  # Number of candles
 
 # --- Get available trading symbols ---
 def get_symbols():
@@ -19,12 +19,16 @@ def get_symbols():
     try:
         r = requests.get(url)
         r.raise_for_status()
-        data = r.json()
+        response = r.json()
 
-        st.expander("🔍 Raw products sample:").write(data[:3])
+        # If it's a dict with a key "result", extract it
+        data = response.get("result", response)
+
+        # Show a sample of what we're working with
+        st.expander("🔍 Raw products sample:").write(data[:3] if isinstance(data, list) else data)
 
         symbols = []
-        for p in data:
+        for p in data if isinstance(data, list) else []:
             symbol = p.get("symbol")
             state = p.get("state")
             status = p.get("trading_status")
@@ -43,7 +47,6 @@ def get_symbols():
 
         if not symbols:
             st.warning("⚠️ No matching assets found.")
-
         return sorted(symbols)
     except Exception as e:
         st.error(f"Error fetching symbols: {e}")
