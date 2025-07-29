@@ -21,10 +21,15 @@ def get_symbols():
         r.raise_for_status()
         data = r.json()
 
-        # 🔍 Show debug output (optional)
-        st.expander("🔍 Raw products sample:").write(data[:3])
+        if isinstance(data, dict) and "result" in data:
+            data = data["result"]
+        elif isinstance(data, dict):
+            data = list(data.values())
+        elif not isinstance(data, list):
+            raise ValueError("Unexpected response structure.")
 
-        # Filter only live perpetual futures with quoting asset USDT
+        st.expander("🔍 Raw products sample:").write(data[:3] if isinstance(data, list) else data)
+
         symbols = []
         for p in data:
             contract_type = p.get("contract_type")
@@ -32,7 +37,6 @@ def get_symbols():
             state = p.get("state")
             status = p.get("trading_status")
 
-            # Check for perpetual futures
             is_perpetual = contract_type == "perpetual_futures"
             quotes_in_usdt = (
                 p.get("quote_currency") == "USDT" or
@@ -47,6 +51,7 @@ def get_symbols():
 
         st.write("✅ Symbols fetched:", symbols)
         return sorted(symbols)
+
     except Exception as e:
         st.error(f"Error fetching symbols: {e}")
         return []
