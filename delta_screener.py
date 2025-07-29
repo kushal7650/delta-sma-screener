@@ -1,6 +1,7 @@
 import streamlit as st
 import pandas as pd
 import requests
+import time
 from ta.trend import SMAIndicator
 
 # --- Config ---
@@ -28,25 +29,35 @@ def get_symbols():
 # --- Fetch OHLCV data ---
 @st.cache_data(show_spinner=False)
 def fetch_ohlcv(symbol: str, interval: str, limit: int = LIMIT):
-    url = f"{API_BASE}/v2/candles"
+    end = int(time.time())
+    multiplier = {"5m": 60 * 5, "15m": 60 * 15}.get(interval, 60 * 5)
+    start = end - limit * multiplier
+
+    url = f"{API_BASE}/chart/history"
     params = {
         "symbol": symbol,
-        "interval": interval,
-        "limit": limit
+        "resolution": interval.replace("m", ""),
+        "from": start,
+        "to": end
     }
     try:
         r = requests.get(url, params=params)
         r.raise_for_status()
-        data = r.json().get("result", [])
-        if not data:
+        data = r.json()
+
+        if not data.get("c"):
             return None
-        df = pd.DataFrame(data)
-        df["timestamp"] = pd.to_datetime(df["time"], unit='ms')
-        df.set_index("timestamp", inplace=True)
-        df = df.rename(columns={
-            "o": "open", "h": "high", "l": "low", "c": "close", "v": "volume"
+
+        df = pd.DataFrame({
+            "close": data.get("c"),
+            "open": data.get("o"),
+            "high": data.get("h"),
+            "low": data.get("l"),
+            "volume": data.get("v"),
+            "timestamp": pd.to_datetime(data.get("t"), unit="s") + pd.Timedelta(hours=5, minutes=30)
         })
-        return df[["open", "high", "low", "close", "volume"]].astype(float)
+        df.set_index("timestamp", inplace=True)
+        return df
     except Exception as e:
         st.warning(f"Data error for {symbol} [{interval}]: {e}")
         return None
@@ -109,7 +120,7 @@ for tf in TIMEFRAMES:
 
 # --- Download Button ---
 st.download_button(
-    label="📥 Download Results (CSV)",
+    label="📅 Download Results (CSV)",
     data=result_df.to_csv(index=False).encode('utf-8'),
     file_name="sma_structure_scan.csv",
     mime="text/csv"
