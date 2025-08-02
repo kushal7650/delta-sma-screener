@@ -63,9 +63,14 @@ def calculate_sma_structure(df):
     last = df.iloc[-1]
     if pd.isna(last["sma_20"]) or pd.isna(last["sma_200"]):
         return "Not enough data"
-    if last["sma_20"] > last["sma_200"]:
+
+    price = last["close"]
+    sma_20 = last["sma_20"]
+    sma_200 = last["sma_200"]
+
+    if price > sma_20 and sma_20 > sma_200:
         return "Bullish"
-    elif last["sma_20"] < last["sma_200"]:
+    elif price < sma_20 and sma_20 < sma_200:
         return "Bearish"
     else:
         return "Neutral"
