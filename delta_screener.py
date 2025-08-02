@@ -33,31 +33,33 @@ def fetch_ohlcv(symbol: str, interval: str, limit: int = LIMIT):
     multiplier = {"5m": 60 * 5, "15m": 60 * 15}.get(interval, 60 * 5)
     start = end - limit * multiplier
 
-    url = f"{API_BASE}/chart/history"
+    url = f"{API_BASE}/v2/history/candles"
     params = {
         "symbol": symbol,
         "resolution": interval.replace("m", ""),
-        "from": start,
-        "to": end
+        "start": start,
+        "end": end
     }
+
     try:
         r = requests.get(url, params=params)
         r.raise_for_status()
-        data = r.json()
+        candles = r.json().get("result", [])
 
-        if not data.get("c"):
+        if not candles:
             return None
 
-        df = pd.DataFrame({
-            "close": data.get("c"),
-            "open": data.get("o"),
-            "high": data.get("h"),
-            "low": data.get("l"),
-            "volume": data.get("v"),
-            "timestamp": pd.to_datetime(data.get("t"), unit="s") + pd.Timedelta(hours=5, minutes=30)
-        })
+        df = pd.DataFrame(candles)
+        df["timestamp"] = pd.to_datetime(df["time"], unit="s") + pd.Timedelta(hours=5, minutes=30)
         df.set_index("timestamp", inplace=True)
-        return df
+        df = df.rename(columns={
+            "o": "open",
+            "h": "high",
+            "l": "low",
+            "c": "close",
+            "v": "volume"
+        })
+        return df[["open", "high", "low", "close", "volume"]].astype(float)
     except Exception as e:
         st.warning(f"Data error for {symbol} [{interval}]: {e}")
         return None
