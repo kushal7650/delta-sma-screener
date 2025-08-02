@@ -9,13 +9,13 @@ st.set_page_config(page_title="SMA Categorizer", layout="centered")
 st.title("📈 SMA 20 vs SMA 200 Categorizer")
 st.caption("Shows assets under Bullish/Bearish by SMA structure")
 
-API_BASE = "https://api.india.delta.exchange"
+API_BASE = "https://api.delta.exchange"
 TIMEFRAMES = ["5m", "15m"]
 LIMIT = 200
 
 # --- Fetch tradable symbols ---
 def get_symbols():
-    url = f"{API_BASE}/v2/products"
+    url = f"{API_BASE}/api/v2/products"
     try:
         r = requests.get(url)
         r.raise_for_status()
@@ -33,33 +33,31 @@ def fetch_ohlcv(symbol: str, interval: str, limit: int = LIMIT):
     multiplier = {"5m": 60 * 5, "15m": 60 * 15}.get(interval, 60 * 5)
     start = end - limit * multiplier
 
-    url = f"{API_BASE}/v2/history/candles"
+    url = f"{API_BASE}/api/v2/history/candles"
     params = {
         "symbol": symbol,
         "resolution": interval.replace("m", ""),
         "start": start,
         "end": end
     }
-
     try:
         r = requests.get(url, params=params)
         r.raise_for_status()
-        candles = r.json().get("result", [])
+        data = r.json()
 
-        if not candles:
+        if not data.get("c"):
             return None
 
-        df = pd.DataFrame(candles)
-        df["timestamp"] = pd.to_datetime(df["time"], unit="s") + pd.Timedelta(hours=5, minutes=30)
-        df.set_index("timestamp", inplace=True)
-        df = df.rename(columns={
-            "o": "open",
-            "h": "high",
-            "l": "low",
-            "c": "close",
-            "v": "volume"
+        df = pd.DataFrame({
+            "close": data.get("c"),
+            "open": data.get("o"),
+            "high": data.get("h"),
+            "low": data.get("l"),
+            "volume": data.get("v"),
+            "timestamp": pd.to_datetime(data.get("t"), unit="s") + pd.Timedelta(hours=5, minutes=30)
         })
-        return df[["open", "high", "low", "close", "volume"]].astype(float)
+        df.set_index("timestamp", inplace=True)
+        return df
     except Exception as e:
         st.warning(f"Data error for {symbol} [{interval}]: {e}")
         return None
