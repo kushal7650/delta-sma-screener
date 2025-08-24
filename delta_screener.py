@@ -6,7 +6,7 @@ from ta.trend import SMAIndicator
 
 st.set_page_config(page_title="SMA Categorizer", layout="centered")
 st.title("📈 SMA 20 vs SMA 200 Categorizer")
-st.caption("Shows assets under Bullish/Bearish by SMA structure")
+st.caption("Shows assets under Bullish/Bearish by SMA structure across all available assets")
 
 # --- Config ---
 API_BASE = "https://api.india.delta.exchange"
@@ -68,27 +68,25 @@ def calculate_sma_structure(df):
     sma_20 = last["sma_20"]
     sma_200 = last["sma_200"]
 
-    if price > sma_20 and sma_20 > sma_200:
+    if (price > sma_20 and sma_20 > sma_200) or (price > sma_20 and price > sma_200):
         return "Bullish"
     elif price < sma_20 and sma_20 < sma_200:
         return "Bearish"
     else:
         return "Neutral"
 
-# --- UI: Asset selection ---
-st.markdown("---")
+# --- Get all symbols ---
 all_symbols = get_symbols()
-selected_assets = st.multiselect("Select up to 10 assets", options=all_symbols, max_selections=10)
-
-if not selected_assets:
-    st.warning("⚠️ Please select assets to scan.")
+if not all_symbols:
     st.stop()
 
+st.markdown("---")
+st.info(f"🔍 Scanning ALL {len(all_symbols)} available assets across timeframes...")
+
 # --- Scanning ---
-st.info("🔍 Scanning selected assets across timeframes...")
 data_rows = []
 
-for symbol in selected_assets:
+for symbol in all_symbols:
     row = {"Symbol": symbol}
     for tf in TIMEFRAMES:
         df = fetch_ohlcv(symbol, tf, limit=LIMIT)
